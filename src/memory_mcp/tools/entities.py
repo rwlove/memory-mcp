@@ -258,3 +258,130 @@ def register_entity_tools(mcp: FastMCP) -> None:
                 "error": f"observation {observation_id} not found or already deleted",
             }
         return {"success": True, "observation_id": observation_id}
+
+    @mcp.tool()
+    async def update_entity(
+        name: Annotated[
+            str, Field(description="Current entity name (used to look it up).")
+        ],
+        new_name: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description="New name. Must be unique. Relations re-resolve by id so existing edges survive a rename.",
+            ),
+        ] = None,
+        type: Annotated[
+            str | None,
+            Field(default=None, description="New entity type. None = no change."),
+        ] = None,
+        namespace: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description="New namespace grouping. Pass an empty string '' to clear (set NULL).",
+            ),
+        ] = None,
+        source: Annotated[
+            dict[str, Any] | None,
+            Field(default=None, description="Provenance metadata for the update."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Update mutable fields on an existing entity. Bumps `updated_at`.
+
+        `source` overwrites the entity's source field with the new provenance
+        — past provenance is in observation rows. Pass `namespace=""` (empty
+        string) to set NULL.
+        """
+        sets: list[str] = []
+        args: list[Any] = []
+        if new_name is not None:
+            args.append(new_name)
+            sets.append(f"name = ${len(args)}")
+        if type is not None:
+            args.append(type)
+            sets.append(f"type = ${len(args)}")
+        if namespace is not None:
+            args.append(namespace if namespace else None)
+            sets.append(f"namespace = ${len(args)}")
+        if source is not None:
+            args.append(normalize_source(source))
+            sets.append(f"source = ${len(args)}")
+        if not sets:
+            return {"success": False, "error": "no fields to update"}
+
+        sets.append("updated_at = now()")
+        args.append(name)
+        sql = f"""
+            UPDATE kg.entities
+            SET {', '.join(sets)}
+            WHERE name = ${len(args)}
+            RETURNING id, name, type, namespace, updated_at
+        """
+        async with get_conn() as conn:
+            try:
+                row = await conn.fetchrow(sql, *args)
+            except Exception as exc:
+                return {"success": False, "error": str(exc)}
+        if row is None:
+            return {"success": False, "error": f"entity '{name}' not found"}
+        return {"success": True, "entity": dict(row)}
+
+    @mcp.tool()
+    async def update_observation(
+        observation_id: Annotated[
+            int, Field(description="Observation id to update.")
+        ],
+        content: Annotated[
+            str, Field(description="New content. Will be re-embedded.")
+        ],
+        source: Annotated[
+            dict[str, Any] | None,
+            Field(default=None, description="Provenance for the update."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Replace an observation's content and re-embed.
+
+        Errors if the observation is soft-deleted. Use `add_observation` + an
+        explicit `delete_observation` if you want history-preserving "the
+        fact changed" semantics. This tool is for correcting typos / outdated
+        wording in-place.
+        """
+        src = normalize_source(source)
+        vector = await embed(content)
+        async with get_conn() as conn:
+            if vector is None:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE kg.observations
+                    SET content = $1, embedding = NULL, source = $2
+                    WHERE id = $3 AND deleted_at IS NULL
+                    RETURNING id, entity_id
+                    """,
+                    content,
+                    src,
+                    observation_id,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE kg.observations
+                    SET content = $1, embedding = $2::vector, source = $3
+                    WHERE id = $4 AND deleted_at IS NULL
+                    RETURNING id, entity_id
+                    """,
+                    content,
+                    encode_vector(vector),
+                    src,
+                    observation_id,
+                )
+            if row is None:
+                return {
+                    "success": False,
+                    "error": f"observation {observation_id} not found or already deleted",
+                }
+            await conn.execute(
+                "UPDATE kg.entities SET updated_at = now() WHERE id = $1",
+                row["entity_id"],
+            )
+        return {"success": True, "observation_id": observation_id}

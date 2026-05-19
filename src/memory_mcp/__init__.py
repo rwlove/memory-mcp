@@ -1,3 +1,3 @@
 """Knowledge-graph MCP server backed by Postgres + pgvector."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

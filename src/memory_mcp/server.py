@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from memory_mcp import __version__
 from memory_mcp.config import get_settings
+from memory_mcp.db import get_conn
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +50,62 @@ def create_server() -> FastMCP:
     register_relation_tools(mcp)
     register_search_tools(mcp)
 
+    _register_health_routes(mcp)
+
     logger.info(
         "memory-mcp initialised (embed=%s @ %s)",
         settings.embed_model,
         settings.ollama_base_url,
     )
     return mcp
+
+
+def _register_health_routes(mcp: FastMCP) -> None:
+    """Register /healthz and /readyz HTTP probes alongside the MCP endpoint.
+
+    /healthz — process is up and the Postgres pool can serve a SELECT 1.
+    /readyz  — /healthz plus Ollama responds to /api/tags (so embeddings
+               aren't going to silently 404 forever). Returns 503 on either
+               failure; readiness is the gate the kubelet uses to drop us
+               out of the Service while Ollama recovers.
+    """
+
+    @mcp.custom_route("/healthz", methods=["GET"])
+    async def healthz(_: Request) -> JSONResponse:
+        try:
+            async with get_conn() as conn:
+                await conn.fetchval("SELECT 1")
+        except Exception as exc:
+            logger.exception("healthz: db ping failed")
+            return JSONResponse(
+                {"status": "error", "component": "db", "detail": str(exc)},
+                status_code=503,
+            )
+        return JSONResponse({"status": "ok"})
+
+    @mcp.custom_route("/readyz", methods=["GET"])
+    async def readyz(_: Request) -> JSONResponse:
+        settings = get_settings()
+        try:
+            async with get_conn() as conn:
+                await conn.fetchval("SELECT 1")
+        except Exception as exc:
+            logger.exception("readyz: db ping failed")
+            return JSONResponse(
+                {"status": "error", "component": "db", "detail": str(exc)},
+                status_code=503,
+            )
+
+        ollama_url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                r = await client.get(ollama_url)
+                r.raise_for_status()
+        except Exception as exc:
+            logger.warning("readyz: ollama probe failed: %s", exc)
+            return JSONResponse(
+                {"status": "error", "component": "ollama", "detail": str(exc)},
+                status_code=503,
+            )
+
+        return JSONResponse({"status": "ok"})

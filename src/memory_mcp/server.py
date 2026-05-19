@@ -6,8 +6,9 @@ import logging
 
 import httpx
 from fastmcp import FastMCP
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from memory_mcp import __version__
 from memory_mcp.config import get_settings
@@ -42,15 +43,22 @@ def create_server() -> FastMCP:
         instructions=SERVER_INSTRUCTIONS,
     )
 
+    from memory_mcp.tools.batch import register_batch_tools
     from memory_mcp.tools.entities import register_entity_tools
+    from memory_mcp.tools.graph import register_graph_tools
+    from memory_mcp.tools.recent import register_recent_tools
     from memory_mcp.tools.relations import register_relation_tools
     from memory_mcp.tools.search import register_search_tools
 
     register_entity_tools(mcp)
     register_relation_tools(mcp)
     register_search_tools(mcp)
+    register_graph_tools(mcp)
+    register_recent_tools(mcp)
+    register_batch_tools(mcp)
 
     _register_health_routes(mcp)
+    _register_metrics_route(mcp)
 
     logger.info(
         "memory-mcp initialised (embed=%s @ %s)",
@@ -58,6 +66,21 @@ def create_server() -> FastMCP:
         settings.ollama_base_url,
     )
     return mcp
+
+
+def _register_metrics_route(mcp: FastMCP) -> None:
+    """Expose Prometheus /metrics.
+
+    Default prometheus_client process + GC collectors give us CPU /
+    memory / fd-count / GC-pause for free. Application-level
+    instrumentation (per-tool counters / histograms) can layer on top
+    in a future release — keep this scrape surface stable.
+    """
+
+    @mcp.custom_route("/metrics", methods=["GET"])
+    async def metrics(_: Request) -> Response:
+        body = generate_latest()
+        return Response(content=body, media_type=CONTENT_TYPE_LATEST)
 
 
 def _register_health_routes(mcp: FastMCP) -> None:

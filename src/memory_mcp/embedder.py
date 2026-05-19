@@ -17,25 +17,30 @@ logger = logging.getLogger(__name__)
 
 
 async def embed(content: str) -> list[float] | None:
-    """Return an embedding for `content`, or None on failure."""
+    """Return an embedding for `content`, or None on failure.
+
+    Uses the modern Ollama `/api/embed` endpoint (the legacy
+    `/api/embeddings` was removed in recent Ollama releases). Response
+    shape: `{"embeddings": [[...]]}` (plural, one row per input).
+    """
     if not content.strip():
         return None
 
     settings = get_settings()
-    url = f"{settings.ollama_base_url.rstrip('/')}/api/embeddings"
+    url = f"{settings.ollama_base_url.rstrip('/')}/api/embed"
     try:
         async with httpx.AsyncClient(timeout=settings.embed_timeout) as client:
             r = await client.post(
                 url,
-                json={"model": settings.embed_model, "prompt": content},
+                json={"model": settings.embed_model, "input": content},
             )
             r.raise_for_status()
             data = r.json()
-            embedding = data.get("embedding")
-            if not embedding:
-                logger.warning("Ollama returned empty embedding for prompt")
+            rows = data.get("embeddings") or []
+            if not rows or not rows[0]:
+                logger.warning("Ollama returned no embeddings for input")
                 return None
-            return embedding
+            return rows[0]
     except Exception:
         logger.exception("embed failed; storing NULL")
         return None

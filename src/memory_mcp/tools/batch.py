@@ -16,6 +16,7 @@ from pydantic import Field
 
 from memory_mcp.db import encode_vector, get_conn, normalize_source
 from memory_mcp.embedder import embed
+from memory_mcp.metrics import track_tool
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def register_batch_tools(mcp: FastMCP) -> None:
     """Register batch operations."""
 
     @mcp.tool()
+    @track_tool("create_entities")
     async def create_entities(
         entities: Annotated[
             list[dict[str, Any]],
@@ -128,6 +130,7 @@ def register_batch_tools(mcp: FastMCP) -> None:
         return {"success": True, "count": len(results), "results": results}
 
     @mcp.tool()
+    @track_tool("add_observations")
     async def add_observations(
         items: Annotated[
             list[dict[str, Any]],

@@ -10,6 +10,7 @@ from pydantic import Field
 
 from memory_mcp.db import encode_vector, get_conn
 from memory_mcp.embedder import embed
+from memory_mcp.metrics import track_tool
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ def register_search_tools(mcp: FastMCP) -> None:
     """Register the search tool on the MCP server."""
 
     @mcp.tool()
+    @track_tool("search")
     async def search(
         query: Annotated[
             str, Field(description="Search query text.")

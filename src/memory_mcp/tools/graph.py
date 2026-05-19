@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from memory_mcp.db import get_conn
+from memory_mcp.metrics import track_tool
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ def register_graph_tools(mcp: FastMCP) -> None:
     """Register graph-walk tools on the MCP server."""
 
     @mcp.tool()
+    @track_tool("graph_walk")
     async def graph_walk(
         start: Annotated[
             str, Field(description="Entity name to start the walk from.")

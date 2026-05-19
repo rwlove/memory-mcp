@@ -10,6 +10,7 @@ from pydantic import Field
 
 from memory_mcp.db import encode_vector, get_conn, normalize_source
 from memory_mcp.embedder import embed
+from memory_mcp.metrics import track_tool
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
     """Register entity/observation tools on the MCP server."""
 
     @mcp.tool()
+    @track_tool("create_entity")
     async def create_entity(
         name: Annotated[
             str,
@@ -108,6 +110,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
+    @track_tool("add_observation")
     async def add_observation(
         entity_name: Annotated[
             str, Field(description="Name of an existing entity.")
@@ -139,6 +142,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         return {"success": True, "observation_id": obs_id}
 
     @mcp.tool()
+    @track_tool("get_entity")
     async def get_entity(
         name: Annotated[str, Field(description="Entity name.")],
         expand_relations: Annotated[
@@ -195,6 +199,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
+    @track_tool("list_entities")
     async def list_entities(
         type_filter: Annotated[
             str | None,
@@ -236,6 +241,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
+    @track_tool("delete_observation")
     async def delete_observation(
         observation_id: Annotated[
             int, Field(description="Observation id to soft-delete.")
@@ -260,6 +266,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         return {"success": True, "observation_id": observation_id}
 
     @mcp.tool()
+    @track_tool("update_entity")
     async def update_entity(
         name: Annotated[
             str, Field(description="Current entity name (used to look it up).")
@@ -328,6 +335,7 @@ def register_entity_tools(mcp: FastMCP) -> None:
         return {"success": True, "entity": dict(row)}
 
     @mcp.tool()
+    @track_tool("update_observation")
     async def update_observation(
         observation_id: Annotated[
             int, Field(description="Observation id to update.")

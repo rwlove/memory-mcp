@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from memory_mcp.db import get_conn, normalize_source
+from memory_mcp.metrics import track_tool
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def register_relation_tools(mcp: FastMCP) -> None:
     """Register relation tools on the MCP server."""
 
     @mcp.tool()
+    @track_tool("create_relation")
     async def create_relation(
         from_entity: Annotated[
             str, Field(description="Source entity name.")
@@ -83,6 +85,7 @@ def register_relation_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @track_tool("link")
     async def link(
         from_entity: Annotated[
             str, Field(description="Source entity name.")
